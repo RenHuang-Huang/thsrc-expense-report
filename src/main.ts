@@ -46,6 +46,7 @@ for (const k of REMEMBER) {
 }
 formEls.taxId.addEventListener('input', () => { renderGuides(); });
 formEls.companyName.addEventListener('input', () => { renderGuides(); });
+formEls.applicant.addEventListener('input', () => { renderTotals(); });
 
 function getForm(): FormInfo {
   return {
@@ -58,19 +59,24 @@ function getForm(): FormInfo {
 }
 
 // ---------------- OCR ----------------
-const engineSel = $<HTMLSelectElement>('#ocr-engine');
 const keyInput = $<HTMLInputElement>('#claude-key');
 const defaultFare = $<HTMLInputElement>('#default-fare');
+const engineBtns = [...document.querySelectorAll<HTMLButtonElement>('[data-engine]')];
+let engine = 'tesseract';
 try {
-  engineSel.value = localStorage.getItem('thsrc.engine') || 'tesseract';
+  engine = localStorage.getItem('thsrc.engine') === 'claude' ? 'claude' : 'tesseract';
   keyInput.value = sessionStorage.getItem('thsrc.key') || '';
 } catch { /* ignore */ }
-const syncEngine = () => { $('#claude-key-wrap').hidden = engineSel.value !== 'claude'; };
+function syncEngine() {
+  engineBtns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.engine === engine)));
+  $('#claude-key-wrap').hidden = engine !== 'claude';
+}
 syncEngine();
-engineSel.addEventListener('change', () => {
+engineBtns.forEach((b) => b.addEventListener('click', () => {
+  engine = b.dataset.engine!;
   syncEngine();
-  try { localStorage.setItem('thsrc.engine', engineSel.value); } catch { /* ignore */ }
-});
+  try { localStorage.setItem('thsrc.engine', engine); } catch { /* ignore */ }
+}));
 keyInput.addEventListener('change', () => {
   try { sessionStorage.setItem('thsrc.key', keyInput.value.trim()); } catch { /* ignore */ }
 });
@@ -81,10 +87,9 @@ let ocrQueue: Promise<void> = Promise.resolve();
 function handleImages(files: FileList | File[]) {
   const list = [...files].filter((f) => f.type.startsWith('image/'));
   if (!list.length) return;
-  const engine = engineSel.value;
   const key = keyInput.value.trim();
   if (engine === 'claude' && !key) {
-    ocrStatus.innerHTML = '<span class="err">請先填入 Anthropic API key，或改用 Tesseract.js。</span>';
+    ocrStatus.innerHTML = '<span class="err">請先填入 Anthropic API key，或改用「本機辨識」。</span>';
     return;
   }
   const rows = list.map((f) => {
@@ -119,7 +124,7 @@ function handleImages(files: FileList | File[]) {
       renderAll();
     }
     const bad = state.tickets.filter((t) => missingFields(t).length).length;
-    ocrStatus.innerHTML = `<span class="ok">辨識完成 ${rows.length} 張。</span>${bad ? ` 還有 ${bad} 筆有欄位要補（紅框）。` : ''}`;
+    ocrStatus.innerHTML = `<span class="ok">辨識完成 ${rows.length} 張。</span>${bad ? ` 還有 ${bad} 筆有欄位要補（紅框）。` : ' 請再核對一次。'}`;
   });
 }
 
@@ -127,6 +132,11 @@ function handleImages(files: FileList | File[]) {
 const tbody = $('#tickets tbody');
 
 const opt = (v: string, label: string, cur: string) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
+const KINDS: [string, string][] = [['mobile|reserved', '手機・對號'], ['mobile|free', '手機・自由'], ['paper|reserved', '紙本・對號'], ['paper|free', '紙本・自由']];
+const kindOpts = (t: Ticket) => {
+  const cur = t.source && t.seat ? `${t.source}|${t.seat}` : '';
+  return opt('', '請選擇', cur) + KINDS.map(([v, l]) => opt(v, l, cur)).join('');
+};
 const stationOpts = (cur: string) => opt('', '—', cur) + STATIONS.map((s) => opt(s, s, cur)).join('');
 
 // 重繪時會移除正在輸入的欄位，瀏覽器會補發 change 事件（帶舊值）；重繪期間忽略它。
@@ -142,32 +152,76 @@ function renderTable() {
   }
 }
 
+const ICON_X = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ICON_UNDO = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>';
+
 function renderTableInner() {
-  tbody.innerHTML = state.tickets.map((t, i) => {
+  tbody.innerHTML = state.tickets.map((t) => {
     const miss = new Set(missingFields(t));
     const bad = (f: MissingField) => (miss.has(f) ? ' bad' : '');
-    return `<tr data-id="${t.id}">
-      <td>${i + 1}</td>
-      <td>${t.imageUrl ? `<img src="${t.imageUrl}" alt="${esc(t.imageName)}" title="${esc(t.imageName)}" data-zoom>` : ''}</td>
-      <td><select data-f="source" class="${bad('source')}">${opt('', '—', t.source)}${opt('mobile', '手機', t.source)}${opt('paper', '紙本', t.source)}</select></td>
-      <td><select data-f="seat" class="${bad('seat')}">${opt('', '—', t.seat)}${opt('reserved', '對號座', t.seat)}${opt('free', '自由座', t.seat)}</select></td>
-      <td class="w-date"><input data-f="date" value="${esc(t.date)}" placeholder="YYYYMMDD" inputmode="numeric" class="${bad('date')}"></td>
-      <td class="w-st"><select data-f="dep" class="${bad('dep')}">${stationOpts(t.dep)}</select></td>
-      <td class="w-st"><select data-f="arr" class="${bad('arr')}">${stationOpts(t.arr)}</select></td>
-      <td class="w-no"><input data-f="ticketNo" value="${esc(t.ticketNo)}" inputmode="numeric" class="${bad('ticketNo')}"></td>
-      <td class="w-bk"><input data-f="bookingCode" value="${esc(t.bookingCode)}" inputmode="numeric" ${t.seat === 'free' ? 'disabled placeholder="自由座免填"' : ''} class="${bad('bookingCode')}"></td>
-      <td class="w-fare"><input data-f="fare" type="number" min="0" value="${t.fare ?? ''}" class="${bad('fare')}"></td>
-      <td>${t.pdf ? `<span class="pdf-ok" title="${esc(t.pdf.name)}">✔ 已對應</span> <button class="icon-btn" data-unpdf title="取消對應">↺</button>` : '<span class="pdf-none">尚未上傳</span>'}
-        ${t.note ? `<span class="note">${esc(t.note)}</span>` : ''}</td>
-      <td><button class="icon-btn" data-del title="刪除">✕</button></td>
+    const label = `${ymdToSlash(t.date) || '日期未填'} ${t.dep}→${t.arr}`;
+    return `<tr data-id="${t.id}" class="${miss.size ? 'has-bad' : ''}">
+      <td class="w-date" data-label="搭乘日期"><div class="date-cell">
+        ${t.imageUrl ? `<img class="thumb" src="${t.imageUrl}" alt="${esc(t.imageName)}" title="點一下放大：${esc(t.imageName)}" data-zoom>` : ''}
+        <input data-f="date" class="cell-in mono${bad('date')}" value="${esc(t.date)}" placeholder="YYYYMMDD" inputmode="numeric" aria-label="搭乘日期">
+      </div></td>
+      <td data-label="區間"><div class="route">
+        <select data-f="dep" class="cell-in${bad('dep')}" aria-label="起站">${stationOpts(t.dep)}</select><span class="arrow" aria-hidden="true">→</span>
+        <select data-f="arr" class="cell-in${bad('arr')}" aria-label="迄站">${stationOpts(t.arr)}</select>
+      </div></td>
+      <td class="span-all" data-label="票種"><div class="kind">
+        <select data-f="kind" class="cell-in${miss.has('source') || miss.has('seat') ? ' bad' : ''}" aria-label="票種">${kindOpts(t)}</select>
+      </div></td>
+      <td class="w-no" data-label="車票號碼（13 碼）"><input data-f="ticketNo" class="cell-in mono${bad('ticketNo')}" value="${esc(t.ticketNo)}" inputmode="numeric" placeholder="13 碼" aria-label="車票號碼"></td>
+      <td class="w-bk" data-label="訂位代號（8 碼）"><input data-f="bookingCode" class="cell-in mono${bad('bookingCode')}" value="${esc(t.bookingCode)}" inputmode="numeric" ${t.seat === 'free' ? 'disabled placeholder="自由座免填"' : 'placeholder="8 碼"'} aria-label="訂位代號"></td>
+      <td class="w-fare num" data-label="金額"><input data-f="fare" class="cell-in mono fare-in${bad('fare')}" type="number" min="0" value="${t.fare ?? ''}" aria-label="金額"></td>
+      <td data-label="證明 PDF"><div class="pdf-cell">
+        ${t.pdf
+          ? `<span class="row"><span class="chip ok" title="${esc(t.pdf.name)}">已對應</span><button type="button" class="icon-btn" data-unpdf title="取消對應" aria-label="取消 ${esc(label)} 的 PDF 對應">${ICON_UNDO}</button></span>`
+          : '<span class="chip wait">待上傳</span>'}
+        ${t.note ? `<span class="note">${esc(t.note)}</span>` : ''}
+      </div></td>
+      <td class="del"><button type="button" class="icon-btn" data-del aria-label="刪除 ${esc(label)}">${ICON_X}</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="12" class="hint" style="text-align:center;padding:18px">還沒有資料。上傳車票圖片，或按「新增一筆」手動輸入，也可以直接在步驟 4 上傳電子車票證明 PDF。</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="empty">還沒有車票。上傳截圖或照片、按「手動新增」，也可以直接在下面上傳電子車票證明 PDF。</td></tr>';
 }
+
+// ---------------- 摘要與步驟 ----------------
+const ICON_OK = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
+const ICON_BAD = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
+const ICON_TODO = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/></svg>';
 
 function renderTotals() {
   const n = state.tickets.length;
   const withPdf = state.tickets.filter((t) => t.pdf).length;
-  $('#totals').innerHTML = `共 ${n} 筆・總金額 <b>NT$ ${formatMoney(sumFares(state.tickets))}</b>・證明 PDF ${withPdf}/${n}`;
+  const badRows = state.tickets.filter((t) => missingFields(t).length).length;
+  const total = `NT$ ${formatMoney(sumFares(state.tickets))}`;
+  const dates = state.tickets.map((t) => t.date).filter((d) => /^\d{8}$/.test(d)).sort();
+  const range = dates.length ? `${ymdToSlash(dates[0])}${dates.length > 1 && dates[0] !== dates[dates.length - 1] ? ` – ${ymdToSlash(dates[dates.length - 1]).slice(5)}` : ''}` : '';
+
+  $('#sum-total').textContent = total;
+  $('#sum-sub').textContent = n ? `${n} 筆車票${range ? `・${range}` : ''}` : '還沒有車票';
+  $('#sum-pdf').textContent = `${withPdf} / ${n}`;
+  $('#sum-bar').style.width = n ? `${Math.round((withPdf / n) * 100)}%` : '0';
+  $('#mb-total').textContent = total;
+  $('#mb-sub').textContent = `${n} 筆・總金額`;
+  $('#ticket-count').textContent = `${n} 筆${badRows ? `・${badRows} 筆待補` : ''}`;
+
+  const form = getForm();
+  const items: [string, string][] = [
+    form.applicant ? ['ok', '報帳資料已填'] : ['todo', '還沒填申請人'],
+    !n ? ['todo', '還沒有車票'] : badRows ? ['bad', `${badRows} 筆欄位待補`] : ['ok', '明細都填好了'],
+    !n ? ['todo', '還沒上傳證明 PDF'] : withPdf === n ? ['ok', '證明 PDF 都上傳了'] : ['todo', `${n - withPdf} 張證明還沒上傳`],
+  ];
+  $('#checklist').innerHTML = items.map(([k, txt]) =>
+    `<li class="${k}">${k === 'ok' ? ICON_OK : k === 'bad' ? ICON_BAD : ICON_TODO}${esc(txt)}</li>`).join('');
+
+  const done = [!!form.applicant, n > 0 && !badRows, n > 0 && withPdf === n];
+  const now = done.indexOf(false) === -1 ? 3 : done.indexOf(false);
+  $('#steps').innerHTML = ['報帳資料', '車票辨識', '證明 PDF', '匯出'].map((label, i) => {
+    const cls = i < 3 && done[i] ? 'done' : i === now ? 'now' : '';
+    return `<div class="step ${cls}"${i === now ? ' aria-current="step"' : ''}><span class="dot" aria-hidden="true">${cls === 'done' ? '✓' : i + 1}</span>${label}</div>`;
+  }).join('');
 }
 
 function renderAll() {
@@ -185,6 +239,13 @@ function applyField(t: Ticket, f: string, v: string) {
     case 'date': t.date = toYmd(v) || v.replace(/\D/g, ''); break;
     case 'ticketNo': t.ticketNo = v.replace(/\D/g, ''); break;
     case 'bookingCode': t.bookingCode = v.replace(/\D/g, ''); break;
+    case 'kind': {
+      const [src, seat] = v.split('|');
+      t.source = (src || '') as Ticket['source'];
+      t.seat = (seat || '') as Ticket['seat'];
+      if (t.seat === 'free') t.bookingCode = '';
+      break;
+    }
     case 'source': t.source = v as Ticket['source']; break;
     case 'seat': t.seat = v as Ticket['seat']; if (t.seat === 'free') t.bookingCode = ''; break;
     case 'dep': t.dep = v; break;
@@ -200,7 +261,12 @@ tbody.addEventListener('input', (e) => {
   applyField(t, f, el.value);
   // 只更新標紅與總計，避免重繪打斷輸入
   const miss = new Set(missingFields(t));
-  el.closest('tr')!.querySelectorAll<HTMLElement>('[data-f]').forEach((x) => x.classList.toggle('bad', miss.has(x.dataset.f as MissingField)));
+  const tr = el.closest('tr')!;
+  tr.querySelectorAll<HTMLElement>('[data-f]').forEach((x) => {
+    const f = x.dataset.f!;
+    x.classList.toggle('bad', f === 'kind' ? miss.has('source') || miss.has('seat') : miss.has(f as MissingField));
+  });
+  tr.classList.toggle('has-bad', miss.size > 0);
   renderTotals();
 });
 tbody.addEventListener('change', (e) => {
@@ -220,6 +286,7 @@ tbody.addEventListener('change', (e) => {
 });
 tbody.addEventListener('click', (e) => {
   const el = e.target as HTMLElement;
+  const btn = el.closest<HTMLElement>('[data-del],[data-unpdf]');
   if (el.matches('[data-zoom]')) {
     const box = document.createElement('div');
     box.className = 'lightbox';
@@ -230,12 +297,12 @@ tbody.addEventListener('click', (e) => {
   }
   const t = findTicket(el);
   if (!t) return;
-  if (el.matches('[data-del]')) {
+  if (btn?.matches('[data-del]')) {
     if (t.pdf && !confirm('這筆已經對應了證明 PDF，確定要刪除嗎？（PDF 會移到「未對應」清單）')) return;
     if (t.pdf) state.pending.push({ id: `p${Date.now()}`, name: t.pdf.name, bytes: t.pdf.bytes, password: t.pdf.password, parsed: {}, locked: false });
     state.tickets = state.tickets.filter((x) => x !== t);
     renderAll();
-  } else if (el.matches('[data-unpdf]') && t.pdf) {
+  } else if (btn?.matches('[data-unpdf]') && t.pdf) {
     state.pending.push({ id: `p${Date.now()}`, name: t.pdf.name, bytes: t.pdf.bytes, password: t.pdf.password, parsed: {}, locked: false });
     t.pdf = undefined;
     renderAll();
@@ -247,46 +314,70 @@ $('#add-row').addEventListener('click', () => {
 });
 
 // ---------------- 下載指引 ----------------
-const copy = (v: string) => (v ? `<span class="copy" data-copy="${esc(v)}" title="點一下複製">${esc(v)}</span>` : '<b class="req">（缺）</b>');
+const copyBtn = (k: string, v: string) => (v
+  ? `<button type="button" class="copy" data-copy="${esc(v)}" title="點一下複製"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></button>`
+  : `<span class="copy missing"><span class="k">${esc(k)}</span><span class="v">未填</span></span>`);
 const dash = (ymd: string) => (/^\d{8}$/.test(ymd) ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}` : ymd);
+let showAllGuides = false;
+
+function guideCard(t: Ticket): string {
+  const form = getForm();
+  const kind = `${t.source === 'paper' ? '紙本' : '手機'}・${t.seat === 'free' ? '自由座' : '對號座'}`;
+  const route = (x: string) => (x ? `${x}（${stationCode(x)}）` : '');
+  let how = '';
+  let chips: string[] = [];
+  if (t.source === 'paper') {
+    const byPnr = t.seat !== 'free' && !!t.bookingCode;
+    how = `「磁票／QR Code 紙票」分頁 → ${t.seat === 'free' ? '自由座' : '對號座'}，查詢方式選「${byPnr ? '訂位代號' : '車票號碼'}」，填入（點一下複製）：`;
+    chips = [copyBtn('搭乘日期', dash(t.date)), copyBtn('起站', route(t.dep)), copyBtn('迄站', route(t.arr)),
+      byPnr ? copyBtn('訂位代號', t.bookingCode) : copyBtn('車票號碼', t.ticketNo)];
+  } else if (t.seat === 'free') {
+    how = 'T Express → 電子車票證明 → 自由座，填入（點一下複製）：';
+    chips = [copyBtn('搭乘日期', dash(t.date)), copyBtn('起站', route(t.dep)), copyBtn('迄站', route(t.arr)), copyBtn('車票號碼', t.ticketNo)];
+  } else {
+    how = 'T Express → 電子車票證明 → 對號座，填入（點一下複製）：';
+    chips = [copyBtn('訂位代號', t.bookingCode), copyBtn('車票號碼', t.ticketNo), copyBtn('搭乘日期', dash(t.date))];
+  }
+  if (t.source !== 'paper' && (form.taxId || form.companyName)) {
+    chips.push(copyBtn('統一編號', form.taxId), copyBtn('營利事業名稱', form.companyName));
+  }
+  return `<div class="guide">
+    <div class="guide-head">
+      <div class="guide-title">${esc(ymdToSlash(t.date).slice(5) || '日期未填')} ${esc(t.dep || '?')} → ${esc(t.arr || '?')} <span>${kind}</span></div>
+      <span class="chip wait">待下載</span>
+    </div>
+    <div class="guide-how">${how}</div>
+    <div class="copies">${chips.join('')}</div>
+  </div>`;
+}
 
 function renderGuides() {
-  const form = getForm();
-  const billing = form.taxId || form.companyName
-    ? `<li>查到後在結果頁填入統一編號 ${copy(form.taxId)}、營利事業名稱 ${copy(form.companyName)}，再按該列「下載」→ 確認下載。</li>`
-    : '<li>查到後（需要的話填統一編號與營利事業名稱），按該列「下載」→ 確認下載。</li>';
-  $('#guides').innerHTML = state.tickets.map((t, i) => {
-    const st = `${t.dep || '?'}（${stationCode(t.dep) ?? '?'}）→ ${t.arr || '?'}（${stationCode(t.arr) ?? '?'}）`;
-    let steps = '';
-    if (t.source === 'paper') {
-      const by = t.seat === 'reserved' && t.bookingCode
-        ? `查詢方式選「訂位代號」，輸入 ${copy(t.bookingCode)}`
-        : `查詢方式選「車票號碼」，輸入 ${copy(t.ticketNo)}`;
-      steps = `<li>點「磁票／QR Code 紙票」分頁 → 選「${t.seat === 'free' ? '自由座' : '對號座'}」。</li>
-        <li>搭乘日期 ${copy(dash(t.date))}，起訖站 ${esc(st)}，${by}。</li>
-        <li>按「開始查詢」→ 該列「下載」（紙本不需統編）。</li>`;
-    } else if (t.seat === 'free') {
-      steps = `<li>點「T Express」→「電子車票證明」→ 座別選「自由座」。</li>
-        <li>搭乘日期 ${copy(dash(t.date))}，搭乘區間 ${esc(st)}，車票號碼 ${copy(t.ticketNo)}。</li>
-        <li>按「開始查詢」。</li>${billing}`;
-    } else {
-      steps = `<li>點「T Express」→「電子車票證明」→ 座別選「對號座」。</li>
-        <li>訂位代號 ${copy(t.bookingCode)}，車票號碼 ${copy(t.ticketNo)}，搭乘日期 ${copy(dash(t.date))}。</li>
-        <li>按「開始查詢」。</li>${billing}`;
-    }
-    return `<div class="guide${t.pdf ? ' done' : ''}">
-      <h4>#${i + 1} ${esc(ymdToSlash(t.date) || '日期未填')} ${esc(t.dep)}→${esc(t.arr)}・${t.source === 'paper' ? '紙本' : '手機'}${t.seat === 'free' ? '自由座' : '對號座'} ${t.pdf ? '✔ 已上傳 PDF' : ''}</h4>
-      ${t.pdf ? '' : `<ol>${steps}</ol>`}
-    </div>`;
-  }).join('');
+  const todo = sortTickets(state.tickets).filter((t) => !t.pdf);
+  const done = state.tickets.length - todo.length;
+  const shown = showAllGuides ? todo : todo.slice(0, 1);
+  const rest = todo.length - shown.length;
+  let more = '';
+  if (rest > 0) more = `<div class="guide-more"><span>還有 ${rest} 張待下載${done ? `・${done} 張已對應` : ''}</span><button type="button" class="link-btn" data-guides="all">全部展開</button></div>`;
+  else if (showAllGuides && todo.length > 1) more = `<div class="guide-more"><span>${todo.length} 張待下載${done ? `・${done} 張已對應` : ''}</span><button type="button" class="link-btn" data-guides="one">收合</button></div>`;
+  else if (!todo.length && done) more = `<div class="guide-more"><span>${done} 張證明都已對應</span></div>`;
+  $('#guides').innerHTML = shown.map(guideCard).join('') + more;
 }
+$('#guides').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-guides]');
+  if (!b) return;
+  showAllGuides = b.dataset.guides === 'all';
+  renderGuides();
+});
 document.addEventListener('click', async (e) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('[data-copy]');
   if (!el) return;
   try {
     await navigator.clipboard.writeText(el.dataset.copy!);
-    const old = el.textContent; el.textContent = '已複製 ✓';
-    setTimeout(() => { el.textContent = old; }, 900);
+    const v = el.querySelector('.v')!;
+    const old = v.textContent;
+    v.textContent = '已複製';
+    el.classList.add('done');
+    setTimeout(() => { v.textContent = old; el.classList.remove('done'); }, 900);
   } catch { /* 無剪貼簿權限 */ }
 });
 
@@ -370,18 +461,18 @@ function renderPending() {
       ? '打不開（用明細裡的日期當密碼都不對）。請輸入密碼（搭乘日期 YYYYMMDD）：'
       : `內容：${esc(ymdToSlash(p.parsed.date ?? '') || '?')} ${esc(p.parsed.dep ?? '?')}→${esc(p.parsed.arr ?? '?')} 票號 ${esc(p.parsed.ticketNo ?? '?')} 票價 ${esc(p.parsed.fare ?? '?')}`;
     return `<div class="unmatched" data-pid="${p.id}">
-      <b>${esc(p.name)}</b><span>${desc}</span>
+      <span class="name">${esc(p.name)}</span><span class="desc">${desc}</span>
       ${p.locked
-        ? '<input data-pw placeholder="YYYYMMDD" inputmode="numeric"><button data-unlock class="ghost">解開</button>'
-        : `<select data-assign><option value="">對應到…</option>${freeRows.map((t) => `<option value="${t.id}">#${state.tickets.indexOf(t) + 1} ${esc(ymdToSlash(t.date))} ${esc(t.dep)}→${esc(t.arr)}</option>`).join('')}</select>
-           <button data-newrow class="ghost">新增成一筆</button>`}
-      <button class="icon-btn" data-drop title="移除">✕</button>
+        ? '<input data-pw placeholder="YYYYMMDD" inputmode="numeric" aria-label="PDF 密碼"><button type="button" data-unlock class="btn">解開</button>'
+        : `<select data-assign aria-label="對應到哪一筆"><option value="">對應到…</option>${freeRows.map((t) => `<option value="${t.id}">#${state.tickets.indexOf(t) + 1} ${esc(ymdToSlash(t.date))} ${esc(t.dep)}→${esc(t.arr)}</option>`).join('')}</select>
+           <button type="button" data-newrow class="btn">新增成一筆</button>`}
+      <button type="button" class="icon-btn" data-drop aria-label="移除 ${esc(p.name)}">${ICON_X}</button>
     </div>`;
   }).join('');
 }
 
 $('#unmatched').addEventListener('click', async (e) => {
-  const el = e.target as HTMLElement;
+  const el = (e.target as HTMLElement).closest<HTMLElement>('button') ?? (e.target as HTMLElement);
   const wrap = el.closest<HTMLElement>('[data-pid]');
   const p = state.pending.find((x) => x.id === wrap?.dataset.pid);
   if (!p || !wrap) return;
@@ -417,8 +508,15 @@ $<HTMLInputElement>('#tpl-input').addEventListener('change', async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0];
   if (!f) return;
   state.template = { name: f.name, bytes: await f.arrayBuffer() };
-  $('#tpl-name').textContent = `已選擇：${f.name}（點這裡可更換）`;
+  renderTemplate();
+  (e.target as HTMLInputElement).value = '';
 });
+$('#tpl-reset').addEventListener('click', () => { state.template = null; renderTemplate(); });
+function renderTemplate() {
+  $('#tpl-name').textContent = state.template ? state.template.name : '範例模板.docx';
+  $('#tpl-sub').textContent = state.template ? '你上傳的模板' : '內建・含全部佔位符';
+  $('#tpl-reset').hidden = !state.template;
+}
 
 async function getTemplate(): Promise<ArrayBuffer> {
   if (state.template) return state.template.bytes;
@@ -571,4 +669,5 @@ window.addEventListener('beforeunload', (e) => {
   if (state.tickets.some((t) => t.pdf)) e.preventDefault();
 });
 
+renderTemplate();
 renderAll();

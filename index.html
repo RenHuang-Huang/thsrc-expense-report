@@ -3,135 +3,196 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>高鐵車票報帳小幫手</title>
+  <title>高鐵報帳小幫手</title>
   <meta name="description" content="上傳台灣高鐵車票截圖，OCR 整理明細、解密合併電子車票證明 PDF，並套用 Word 模板產生報帳單。全部在瀏覽器端處理。" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚄</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23C2410C'/%3E%3Cpath d='M9 20V12a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v8a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2zM9 16h14' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <header class="hero">
-    <div class="wrap">
-      <h1>🚄 高鐵車票報帳小幫手</h1>
-      <p>車票截圖 → OCR 明細 → 電子車票證明 PDF 解密合併 → 套用 Word 模板。</p>
-      <p class="privacy">🔒 所有圖片、PDF、模板都只在你的瀏覽器裡處理，不會上傳到任何伺服器。只有在你選擇「Claude」辨識並自行填入 API key 時，圖片才會直接從你的瀏覽器送到 Anthropic API。</p>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15V8a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v7a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M4 11h16"/><path d="M8 18l-2 3"/><path d="M16 18l2 3"/></svg>
+        </div>
+        <div>
+          <h1>高鐵報帳小幫手</h1>
+          <p class="tagline">車票 → 明細 → 電子車票證明合併 → Word 報帳單</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="pill-ok" title="圖片、PDF、模板都只在你的瀏覽器裡處理，不會上傳到任何伺服器。只有選擇 Claude 辨識時，圖片才會從你的瀏覽器直接送到 Anthropic API。">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span class="pill-long">資料只在你的瀏覽器處理</span><span class="pill-short">本機處理</span>
+        </span>
+        <a class="help-link" href="https://github.com/RenHuang-Huang/thsrc-expense-report#readme" target="_blank" rel="noopener">使用說明</a>
+      </div>
     </div>
   </header>
 
-  <main class="wrap">
-    <!-- 1 基本資料 -->
-    <section class="card">
-      <h2><span class="step">1</span>報帳資料</h2>
-      <div class="grid">
-        <label><span>申請人 <b class="req">*</b></span><input id="f-applicant" autocomplete="name" placeholder="王小明" /></label>
-        <label>申請日期<input id="f-date" placeholder="yyyy/mm/dd" /></label>
-        <label>統一編號（選填）<input id="f-taxid" inputmode="numeric" maxlength="8" placeholder="8 碼" /></label>
-        <label>公司名稱（選填）<input id="f-company" placeholder="○○股份有限公司" /></label>
-        <label class="full">出差描述<textarea id="f-desc" rows="2" placeholder="例：2026 年 10 月 台北⇄桃園 客戶拜訪"></textarea></label>
-      </div>
-      <p class="hint">統一編號與公司名稱也是在高鐵網站下載手機票證明時要填的欄位，會印在證明上。</p>
-    </section>
+  <div class="layout">
+    <main class="work">
+      <nav class="steps" id="steps" aria-label="進度"></nav>
 
-    <!-- 2 車票圖片 -->
-    <section class="card">
-      <h2><span class="step">2</span>上傳車票截圖／照片</h2>
-      <div class="grid">
-        <label>辨識引擎
-          <select id="ocr-engine">
-            <option value="tesseract">Tesseract.js（免費，瀏覽器本機辨識）</option>
-            <option value="claude">Claude（較準，需要你自己的 API key）</option>
-          </select>
+      <!-- 報帳資料 -->
+      <section class="card" id="sec-info">
+        <div class="card-head">
+          <h2>報帳資料</h2>
+          <span class="muted small">申請人、統編與公司名稱會記在這台電腦</span>
+        </div>
+        <div class="form-grid">
+          <label class="field"><span>申請人 <b class="req" aria-hidden="true">*</b></span>
+            <input id="f-applicant" autocomplete="name" placeholder="王小明" required />
+          </label>
+          <label class="field"><span>申請日期</span>
+            <input id="f-date" placeholder="yyyy/mm/dd" />
+          </label>
+          <label class="field"><span>統一編號 <em>選填</em></span>
+            <input id="f-taxid" inputmode="numeric" maxlength="8" placeholder="8 碼" />
+          </label>
+          <label class="field"><span>公司名稱 <em>選填</em></span>
+            <input id="f-company" placeholder="○○股份有限公司" />
+          </label>
+          <label class="field span2"><span>出差描述</span>
+            <input id="f-desc" placeholder="例：10 月 板橋⇄桃園 客戶拜訪" />
+          </label>
+        </div>
+      </section>
+
+      <!-- 車票明細 -->
+      <section class="card" id="sec-tickets">
+        <div class="card-head wrap">
+          <div class="title-line">
+            <h2>車票明細</h2>
+            <span class="muted small" id="ticket-count">0 筆</span>
+          </div>
+          <div class="toolbar">
+            <div class="seg" role="group" aria-label="辨識引擎">
+              <button type="button" data-engine="tesseract" aria-pressed="true">本機辨識</button>
+              <button type="button" data-engine="claude" aria-pressed="false">Claude API</button>
+            </div>
+            <button type="button" class="btn" id="add-row">
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>手動新增
+            </button>
+          </div>
+        </div>
+
+        <div class="settings">
+          <label class="inline-field">預設票價
+            <input id="default-fare" type="number" min="0" value="130" />
+            <span class="muted small">截圖沒顯示票價時使用，上傳 PDF 後會依證明更正</span>
+          </label>
+          <label class="inline-field key" id="claude-key-wrap" hidden>Anthropic API key
+            <input id="claude-key" type="password" autocomplete="off" placeholder="sk-ant-…（只存在這個分頁）" />
+          </label>
+        </div>
+
+        <label class="drop" id="img-drop">
+          <input id="img-input" type="file" accept="image/*" multiple />
+          <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>
+          <span>拖曳 T Express 截圖或紙本車票照片到這裡，或 <u>選擇檔案</u></span>
         </label>
-        <label>預設票價（截圖沒顯示票價時使用）<input id="default-fare" type="number" min="0" value="130" /></label>
-        <label class="full" id="claude-key-wrap" hidden>Anthropic API key
-          <input id="claude-key" type="password" autocomplete="off" placeholder="sk-ant-…（只存在這個分頁，關閉即清除）" />
+        <div id="ocr-status" class="status" aria-live="polite"></div>
+
+        <div class="table-box">
+          <table id="tickets">
+            <thead>
+              <tr>
+                <th>搭乘日期</th><th>區間</th><th>票種</th><th>車票號碼</th><th>訂位代號</th>
+                <th class="num">金額</th><th>證明 PDF</th><th><span class="sr">操作</span></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 證明 PDF -->
+      <section class="card" id="sec-pdf">
+        <div class="card-head wrap">
+          <h2>電子車票證明 PDF</h2>
+          <a href="https://ptis.thsrc.com.tw/ptis/index" target="_blank" rel="noopener" class="strong-link">開啟高鐵 ptis 網站 ↗</a>
+        </div>
+        <div class="callout">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <div>每張證明<b>只能下載一次</b>。請先確認上面的明細正確，再照下面的資料到高鐵網站下載。這個網頁沒辦法替你下載（高鐵網站有 reCAPTCHA，也不允許跨網域呼叫）。</div>
+        </div>
+        <div id="guides" class="guides"></div>
+        <label class="drop" id="pdf-drop">
+          <input id="pdf-input" type="file" accept="application/pdf,.pdf" multiple />
+          <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 12v6M9 15l3-3 3 3"/></svg>
+          <span>把下載好的 PDF 拖進來，會用搭乘日期自動解密並對應明細</span>
         </label>
-      </div>
-      <label class="drop" id="img-drop">
-        <input id="img-input" type="file" accept="image/*" multiple />
-        <span>點這裡或拖曳圖片進來（T Express 截圖、紙本車票照片皆可，可多選）</span>
-      </label>
-      <div id="ocr-status" class="status"></div>
-    </section>
+        <div id="pdf-status" class="status" aria-live="polite"></div>
+        <div id="unmatched"></div>
+      </section>
+    </main>
 
-    <!-- 3 明細 -->
-    <section class="card">
-      <h2><span class="step">3</span>車票明細（可直接編輯）</h2>
-      <p class="hint">紅框是缺漏或格式不對的欄位，請補上。日期格式 YYYYMMDD（也是 PDF 開啟密碼）。</p>
-      <div class="table-scroll">
-        <table id="tickets">
-          <thead>
-            <tr>
-              <th>#</th><th>圖片</th><th>類型</th><th>座別</th><th>搭乘日期</th><th>起站</th><th>迄站</th>
-              <th>車票號碼（13 碼）</th><th>訂位代號（8 碼）</th><th>金額</th><th>證明 PDF</th><th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="row-actions">
-        <button id="add-row" class="ghost">＋ 新增一筆</button>
-        <div class="totals" id="totals"></div>
-      </div>
-    </section>
+    <aside class="side">
+      <section class="card" id="summary">
+        <div class="muted small">總金額</div>
+        <div class="big-total" id="sum-total">NT$ 0</div>
+        <div class="sum-sub" id="sum-sub">還沒有車票</div>
+        <div class="progress-label"><span>證明 PDF</span><span class="mono" id="sum-pdf">0 / 0</span></div>
+        <div class="progress"><div id="sum-bar"></div></div>
+        <ul class="checklist" id="checklist"></ul>
+      </section>
 
-    <!-- 4 下載證明 -->
-    <section class="card">
-      <h2><span class="step">4</span>到高鐵網站下載電子車票證明，再傳回來</h2>
-      <div class="warn">
-        ⚠ 每張電子車票證明<b>只能下載一次</b>。請先確認上面的明細正確再去下載，下載好的 PDF 請妥善保存。<br />
-        這個網頁沒辦法替你下載：高鐵網站有 reCAPTCHA、不允許跨網域呼叫，而且下載次數有限制，所以要請你自己操作。
-      </div>
-      <p>開啟 <a href="https://ptis.thsrc.com.tw/ptis/index" target="_blank" rel="noopener">高鐵電子車票證明系統（ptis）</a>，依每筆的指引查詢並下載：</p>
-      <div id="guides" class="guides"></div>
-      <label class="drop" id="pdf-drop">
-        <input id="pdf-input" type="file" accept="application/pdf,.pdf" multiple />
-        <span>把下載好的 PDF 拖進來（可多選）。會用搭乘日期當密碼自動解開，並依票號／訂位代號對應到上面的明細；沒有明細的 PDF 也可以直接新增成一筆。</span>
-      </label>
-      <div id="pdf-status" class="status"></div>
-      <div id="unmatched"></div>
-    </section>
+      <section class="card">
+        <h2 class="side-h">Word 模板</h2>
+        <label class="tpl">
+          <input id="tpl-input" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+          <span class="tpl-icon" aria-hidden="true">W</span>
+          <span class="tpl-text">
+            <span class="tpl-name" id="tpl-name">範例模板.docx</span>
+            <span class="muted small" id="tpl-sub">內建・含全部佔位符</span>
+          </span>
+          <span class="tpl-change">更換</span>
+        </label>
+        <div class="tpl-links">
+          <a id="sample-link" download="高鐵報帳範例模板.docx">下載範例模板</a>
+          <button type="button" class="link-btn" id="tpl-reset" hidden>改回範例模板</button>
+        </div>
+        <details class="ph">
+          <summary>查看可用的佔位符</summary>
+          <dl>
+            <dt><code>{{申請人}}</code> <code>{{申請日期}}</code> <code>{{出差描述}}</code></dt><dd>你填的資料；申請日期預設今天（yyyy/mm/dd）</dd>
+            <dt><code>{{統一編號}}</code> <code>{{公司名稱}}</code></dt><dd>選填，沒填就留白</dd>
+            <dt><code>{{總金額}}</code> <code>{{筆數}}</code></dt><dd>金額加總（千分位）與車票張數</dd>
+            <dt><code>{{清單}}</code></dt><dd>多行文字，每行「日期,起站,迄站,金額」</dd>
+            <dt><code>{{#清單}}…{{/清單}}</code></dt><dd>逐筆重複，可用 <code>{{序號}}</code> <code>{{日期}}</code> <code>{{起站}}</code> <code>{{迄站}}</code> <code>{{金額}}</code> <code>{{車票號碼}}</code> <code>{{訂位代號}}</code>。放在表格同一列（開頭在第一格、結尾在最後一格）會一筆一列展開。</dd>
+          </dl>
+        </details>
+      </section>
 
-    <!-- 5 模板 -->
-    <section class="card">
-      <h2><span class="step">5</span>Word 模板</h2>
-      <p>上傳你的 .docx 模板，佔位符寫成 <code>{{名稱}}</code>。沒有上傳就用範例模板。
-        <a id="sample-link" download="高鐵報帳範例模板.docx">下載範例模板</a></p>
-      <label class="drop small">
-        <input id="tpl-input" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-        <span id="tpl-name">選擇 .docx 模板</span>
-      </label>
-      <details>
-        <summary>可用的佔位符</summary>
-        <table class="ph">
-          <tr><td><code>{{申請人}}</code></td><td>你填的申請人</td></tr>
-          <tr><td><code>{{申請日期}}</code></td><td>預設今天（yyyy/mm/dd）</td></tr>
-          <tr><td><code>{{出差描述}}</code></td><td>你填的出差描述</td></tr>
-          <tr><td><code>{{統一編號}}</code> <code>{{公司名稱}}</code></td><td>選填，沒填就留白</td></tr>
-          <tr><td><code>{{總金額}}</code></td><td>所有車票金額加總（千分位，例 1,560）</td></tr>
-          <tr><td><code>{{筆數}}</code></td><td>車票張數</td></tr>
-          <tr><td><code>{{清單}}</code></td><td>多行文字，每行「日期,起站,迄站,金額」</td></tr>
-          <tr><td><code>{{#清單}}…{{/清單}}</code></td><td>逐筆重複。裡面可用 <code>{{序號}}</code> <code>{{日期}}</code> <code>{{起站}}</code> <code>{{迄站}}</code> <code>{{金額}}</code> <code>{{車票號碼}}</code> <code>{{訂位代號}}</code>。放在表格的同一列（開頭放第一格、結尾放最後一格），就會一筆一列展開。</td></tr>
-        </table>
-      </details>
-    </section>
+      <section class="card export" id="export">
+        <h2 class="side-h">匯出</h2>
+        <button type="button" class="btn primary lg" id="exp-pdf">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>合併 PDF（無密碼）
+        </button>
+        <button type="button" class="btn lg" id="exp-docx">Word 報帳單</button>
+        <div class="two">
+          <button type="button" class="btn soft" id="exp-csv">明細 CSV</button>
+          <button type="button" class="btn soft" id="exp-cover">報帳單 PDF</button>
+        </div>
+        <label class="check"><input type="checkbox" id="opt-cover" checked /> 合併 PDF 前面加一頁報帳單</label>
+        <div id="export-status" class="status" aria-live="polite"></div>
+      </section>
 
-    <!-- 6 匯出 -->
-    <section class="card">
-      <h2><span class="step">6</span>匯出</h2>
-      <label class="check"><input type="checkbox" id="opt-cover" checked /> 合併 PDF 最前面加一頁報帳單</label>
-      <div class="exports">
-        <button id="exp-pdf">📄 合併 PDF</button>
-        <button id="exp-docx">📝 Word 報帳單</button>
-        <button id="exp-csv" class="ghost">📋 明細 CSV</button>
-        <button id="exp-cover" class="ghost">🧾 報帳單 PDF（單獨）</button>
-      </div>
-      <div id="export-status" class="status"></div>
-    </section>
-  </main>
+      <p class="foot">開放原始碼・<a href="https://github.com/RenHuang-Huang/thsrc-expense-report" target="_blank" rel="noopener">GitHub</a><br />本工具與台灣高鐵公司無關。</p>
+    </aside>
+  </div>
 
-  <footer class="wrap foot">
-    開放原始碼：<a href="https://github.com/RenHuang-Huang/thsrc-expense-report" target="_blank" rel="noopener">GitHub</a>。
-    本工具與台灣高鐵公司無關。
-  </footer>
+  <div class="mobilebar" id="mobilebar">
+    <div>
+      <div class="muted small" id="mb-sub">0 筆・總金額</div>
+      <div class="mb-total mono" id="mb-total">NT$ 0</div>
+    </div>
+    <a class="btn primary lg" href="#export">匯出</a>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
