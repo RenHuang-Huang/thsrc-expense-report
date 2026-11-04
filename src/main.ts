@@ -464,14 +464,42 @@ async function processPdf(name: string, bytes: Uint8Array, extraPasswords: strin
   return false;
 }
 
+/** macOS 壓縮時會夾帶 __MACOSX/._xxx.pdf，不是真的 PDF */
+const isJunk = (name: string) => /(^|\/)__MACOSX\//.test(name) || /(^|\/)\._/.test(name);
+
+/** 展開成 {name, bytes}：PDF 直接用，zip 解開取裡面的 PDF */
+async function collectPdfs(files: FileList | File[]) {
+  const out: { name: string; bytes: Uint8Array }[] = [];
+  for (const f of [...files]) {
+    if (isJunk(f.name)) continue;
+    if (/\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
+      const { default: PizZip } = await import('pizzip');
+      const zip = new PizZip(await f.arrayBuffer());
+      for (const entry of Object.values(zip.files)) {
+        if (entry.dir || isJunk(entry.name) || !/\.pdf$/i.test(entry.name)) continue;
+        out.push({ name: entry.name.split('/').pop()!, bytes: entry.asUint8Array() });
+      }
+    } else if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
+      out.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+    }
+  }
+  return out;
+}
+
 async function handlePdfs(files: FileList | File[]) {
-  const list = [...files].filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
-  if (!list.length) return;
   pdfStatus.textContent = '讀取 PDF…';
+  let list: { name: string; bytes: Uint8Array }[] = [];
+  try {
+    list = await collectPdfs(files);
+  } catch (e) {
+    pdfStatus.innerHTML = `<span class="err">讀取失敗：${esc((e as Error).message)}</span>`;
+    return;
+  }
+  if (!list.length) { pdfStatus.innerHTML = '<span class="err">沒有找到 PDF。</span>'; return; }
   let ok = 0;
   for (const f of list) {
     try {
-      if (await processPdf(f.name, new Uint8Array(await f.arrayBuffer()))) ok += 1;
+      if (await processPdf(f.name, f.bytes)) ok += 1;
     } catch (e) {
       pdfStatus.innerHTML = `<span class="err">${esc(f.name)} 讀取失敗：${esc((e as Error).message)}</span>`;
     }
