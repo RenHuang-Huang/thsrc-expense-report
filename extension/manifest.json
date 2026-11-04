@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "高鐵報帳小幫手 自動下載",
+  "version": "1.0.0",
+  "description": "配合「高鐵報帳小幫手」網頁，自動到高鐵 ptis 網站查詢並下載電子車票證明 PDF。",
+  "minimum_chrome_version": "116",
+  "permissions": ["scripting", "debugger", "downloads", "tabs"],
+  "host_permissions": ["https://ptis.thsrc.com.tw/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://renhuang-huang.github.io/thsrc-expense-report/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

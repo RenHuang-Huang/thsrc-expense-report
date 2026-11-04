@@ -5,6 +5,7 @@ import { parseProofText } from './parse';
 import { newTicket, type ParsedTicket, type Ticket } from './types';
 import { buildTemplateData, describeTemplateError, fillDocx, type FormInfo } from './template';
 import type { MergeInput, QpdfInstance } from './pdf';
+import { base64ToBytes, detectExt, extVersion, onExtMessage, startDownload, type ExtJob } from './ext';
 
 // ---------------- 狀態 ----------------
 interface PendingPdf {
@@ -26,6 +27,29 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySe
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const BASE = import.meta.env.BASE_URL;
 
+// ---------------- 深淺色 ----------------
+const themeBtn = $<HTMLButtonElement>('#theme-toggle');
+function currentTheme(): 'light' | 'dark' {
+  const set = document.documentElement.dataset.theme;
+  if (set === 'light' || set === 'dark') return set;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function applyTheme(t: 'light' | 'dark') {
+  document.documentElement.dataset.theme = t;
+  themeBtn.setAttribute('aria-label', t === 'dark' ? '切換成淺色' : '切換成深色');
+  themeBtn.title = themeBtn.getAttribute('aria-label')!;
+  themeBtn.dataset.mode = t;
+}
+try {
+  const saved = localStorage.getItem('thsrc.theme');
+  if (saved === 'light' || saved === 'dark') applyTheme(saved); else applyTheme(currentTheme());
+} catch { applyTheme(currentTheme()); }
+themeBtn.addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { localStorage.setItem('thsrc.theme', next); } catch { /* ignore */ }
+});
+
 // ---------------- 基本資料 ----------------
 const formEls = {
   applicant: $<HTMLInputElement>('#f-applicant'),
@@ -37,10 +61,10 @@ const formEls = {
 formEls.applyDate.value = todayString();
 
 // 記住常用欄位（只存在這台電腦的瀏覽器）
-const REMEMBER = ['applicant', 'taxId', 'companyName'] as const;
+const REMEMBER = ['applicant', 'taxId', 'companyName', 'description'] as const;
 for (const k of REMEMBER) {
   try { const v = localStorage.getItem(`thsrc.${k}`); if (v) formEls[k].value = v; } catch { /* 無痕模式 */ }
-  formEls[k].addEventListener('change', () => {
+  formEls[k].addEventListener('input', () => {
     try { localStorage.setItem(`thsrc.${k}`, formEls[k].value.trim()); } catch { /* ignore */ }
   });
 }
@@ -60,7 +84,6 @@ function getForm(): FormInfo {
 
 // ---------------- OCR ----------------
 const keyInput = $<HTMLInputElement>('#claude-key');
-const defaultFare = $<HTMLInputElement>('#default-fare');
 const engineBtns = [...document.querySelectorAll<HTMLButtonElement>('[data-engine]')];
 let engine = 'tesseract';
 try {
@@ -110,16 +133,11 @@ function handleImages(files: FileList | File[]) {
         Object.assign(t, parsed);
         if (t.seat === 'free') t.bookingCode = '';
         const notes: string[] = [];
-        if (t.fare == null && Number(defaultFare.value) > 0) {
-          t.fare = Number(defaultFare.value);
-          notes.push('票價用預設值');
-        }
         const miss = missingFields(t);
         if (miss.length) notes.push('請補紅框欄位');
         t.note = notes.join('・');
       } catch (e) {
         t.note = `辨識失敗：${e instanceof Error ? e.message : String(e)}`;
-        if (t.fare == null && Number(defaultFare.value) > 0) t.fare = Number(defaultFare.value);
       }
       renderAll();
     }
@@ -152,6 +170,14 @@ function renderTable() {
   }
 }
 
+const DL_LABEL: Record<string, [string, string]> = {
+  queued: ['排隊中', 'run'], running: ['下載中', 'run'], rejected: ['資料被拒', 'bad'],
+  already: ['已被下載過', 'bad'], error: ['下載失敗', 'bad'], saved: ['在下載資料夾', 'bad'],
+};
+function dlChip(t: Ticket) {
+  const [label, cls] = (t.dl && DL_LABEL[t.dl.status]) || ['待下載', 'wait'];
+  return `<span class="chip ${cls}">${label}</span>${t.dl?.message ? `<span class="note">${esc(t.dl.message)}</span>` : ''}`;
+}
 const ICON_X = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_UNDO = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>';
 
@@ -174,11 +200,11 @@ function renderTableInner() {
       </div></td>
       <td class="w-no" data-label="車票號碼（13 碼）"><input data-f="ticketNo" class="cell-in mono${bad('ticketNo')}" value="${esc(t.ticketNo)}" inputmode="numeric" placeholder="13 碼" aria-label="車票號碼"></td>
       <td class="w-bk" data-label="訂位代號（8 碼）"><input data-f="bookingCode" class="cell-in mono${bad('bookingCode')}" value="${esc(t.bookingCode)}" inputmode="numeric" ${t.seat === 'free' ? 'disabled placeholder="自由座免填"' : 'placeholder="8 碼"'} aria-label="訂位代號"></td>
-      <td class="w-fare num" data-label="金額"><input data-f="fare" class="cell-in mono fare-in${bad('fare')}" type="number" min="0" value="${t.fare ?? ''}" aria-label="金額"></td>
+      <td class="w-fare num" data-label="金額"><input data-f="fare" class="cell-in mono fare-in${bad('fare')}" type="number" min="0" value="${t.fare ?? ''}" placeholder="證明帶入" aria-label="金額"></td>
       <td data-label="證明 PDF"><div class="pdf-cell">
         ${t.pdf
           ? `<span class="row"><span class="chip ok" title="${esc(t.pdf.name)}">已對應</span><button type="button" class="icon-btn" data-unpdf title="取消對應" aria-label="取消 ${esc(label)} 的 PDF 對應">${ICON_UNDO}</button></span>`
-          : '<span class="chip wait">待上傳</span>'}
+          : dlChip(t)}
         ${t.note ? `<span class="note">${esc(t.note)}</span>` : ''}
       </div></td>
       <td class="del"><button type="button" class="icon-btn" data-del aria-label="刪除 ${esc(label)}">${ICON_X}</button></td>
@@ -211,14 +237,14 @@ function renderTotals() {
   const items: [string, string][] = [
     form.applicant ? ['ok', '報帳資料已填'] : ['todo', '還沒填申請人'],
     !n ? ['todo', '還沒有車票'] : badRows ? ['bad', `${badRows} 筆欄位待補`] : ['ok', '明細都填好了'],
-    !n ? ['todo', '還沒上傳證明 PDF'] : withPdf === n ? ['ok', '證明 PDF 都上傳了'] : ['todo', `${n - withPdf} 張證明還沒上傳`],
+    !n ? ['todo', '還沒有證明 PDF'] : withPdf === n ? ['ok', '證明 PDF 都到齊了'] : ['todo', `${n - withPdf} 張證明還沒下載`],
   ];
   $('#checklist').innerHTML = items.map(([k, txt]) =>
     `<li class="${k}">${k === 'ok' ? ICON_OK : k === 'bad' ? ICON_BAD : ICON_TODO}${esc(txt)}</li>`).join('');
 
   const done = [!!form.applicant, n > 0 && !badRows, n > 0 && withPdf === n];
   const now = done.indexOf(false) === -1 ? 3 : done.indexOf(false);
-  $('#steps').innerHTML = ['報帳資料', '車票辨識', '證明 PDF', '匯出'].map((label, i) => {
+  $('#steps').innerHTML = ['報帳資料', '車票辨識', '下載證明', '匯出'].map((label, i) => {
     const cls = i < 3 && done[i] ? 'done' : i === now ? 'now' : '';
     return `<div class="step ${cls}"${i === now ? ' aria-current="step"' : ''}><span class="dot" aria-hidden="true">${cls === 'done' ? '✓' : i + 1}</span>${label}</div>`;
   }).join('');
@@ -229,11 +255,14 @@ function renderAll() {
   renderTotals();
   renderGuides();
   renderPending();
+  renderAuto();
 }
 
 const findTicket = (el: Element) => state.tickets.find((t) => t.id === el.closest('tr')?.getAttribute('data-id'));
 
 function applyField(t: Ticket, f: string, v: string) {
+  // 改了資料就清掉上次失敗的狀態，可以再按一次自動下載
+  if (t.dl && t.dl.status !== 'running' && t.dl.status !== 'queued' && t.dl.status !== 'ok') t.dl = undefined;
   switch (f) {
     case 'fare': t.fare = v === '' ? null : Number(v); break;
     case 'date': t.date = toYmd(v) || v.replace(/\D/g, ''); break;
@@ -268,6 +297,7 @@ tbody.addEventListener('input', (e) => {
   });
   tr.classList.toggle('has-bad', miss.size > 0);
   renderTotals();
+  renderAuto();
 });
 tbody.addEventListener('change', (e) => {
   if (rendering) return;
@@ -283,6 +313,7 @@ tbody.addEventListener('change', (e) => {
   if (el.dataset.f === 'date') el.value = t.date;
   renderGuides();
   renderPending();
+  renderAuto();
 });
 tbody.addEventListener('click', (e) => {
   const el = e.target as HTMLElement;
@@ -309,7 +340,7 @@ tbody.addEventListener('click', (e) => {
   }
 });
 $('#add-row').addEventListener('click', () => {
-  state.tickets.push(newTicket({ fare: Number(defaultFare.value) > 0 ? Number(defaultFare.value) : null }));
+  state.tickets.push(newTicket());
   renderAll();
 });
 
@@ -399,8 +430,8 @@ function attach(t: Ticket, pdf: { name: string; bytes: Uint8Array; password: str
   t.pdf = pdf;
   const notes: string[] = [];
   if (parsed.fare && parsed.fare !== t.fare) {
+    notes.push(t.fare ? `金額依證明更正為 ${parsed.fare}` : '金額由證明帶入');
     t.fare = parsed.fare;
-    notes.push(`金額依 PDF 更新為 ${parsed.fare}`);
   }
   // 補上 OCR 沒抓到的欄位
   for (const k of ['date', 'dep', 'arr', 'ticketNo', 'bookingCode', 'source'] as const) {
@@ -502,6 +533,138 @@ $('#unmatched').addEventListener('change', (e) => {
   renderAll();
 });
 
+// ---------------- 自動下載（擴充功能） ----------------
+let downloading = false;
+let extChecked = false;
+const EXT_ZIP = `${BASE}thsrc-helper-extension.zip`;
+const isDesktopChromium = () => /Chrome|Edg\//.test(navigator.userAgent) && !/Mobile|Android|iPhone|iPad/.test(navigator.userAgent);
+
+/** 需要下載的票：沒有 PDF；已被下載過、被拒（要先改資料）的不算 */
+const toDownload = () => state.tickets.filter((t) => !t.pdf && !['already', 'saved', 'rejected'].includes(t.dl?.status ?? ''));
+
+let lastAutoHtml = '';
+/** 只有內容真的變了才重繪，避免點按鈕時（輸入框 blur 觸發重繪）按鈕被換掉 */
+function setAuto(html: string) {
+  if (html === lastAutoHtml) return;
+  lastAutoHtml = html;
+  $('#auto-box').innerHTML = html;
+}
+
+function renderAuto() {
+  const ver = extVersion();
+  if (!ver) {
+    if (!extChecked) { setAuto('<div class="auto-card"><div class="info muted">檢查自動下載功能…</div></div>'); return; }
+    setAuto(`<div class="install">
+      <div class="auto-card" style="border:none;padding:0">
+        <div class="info">
+          <div class="title"><span class="dot-off" aria-hidden="true"></span>還沒安裝自動下載擴充功能</div>
+          <div class="sub">${isDesktopChromium() ? '只要裝一次。裝好後按一個按鈕，系統就會自動到高鐵網站下載所有證明。' : '自動下載需要電腦版 Chrome 或 Edge。手機請改用下方「手動下載與上傳」。'}</div>
+        </div>
+      </div>
+      ${isDesktopChromium() ? `<ol>
+        <li><a href="${EXT_ZIP}" download>下載擴充功能（zip）</a>，解壓縮。</li>
+        <li>在網址列輸入 <code>chrome://extensions</code>（Edge 是 <code>edge://extensions</code>），打開右上角「開發人員模式」。</li>
+        <li>按「載入未封裝項目」，選剛剛解壓縮出來的 <b>thsrc-helper-extension</b> 資料夾。</li>
+        <li>回到這個頁面重新整理。</li>
+      </ol>
+      <div class="row"><a class="btn" href="${EXT_ZIP}" download>下載擴充功能</a><button type="button" class="btn soft" data-copy="chrome://extensions"><span class="k">複製</span><span class="v">chrome://extensions</span></button></div>` : ''}
+    </div>`);
+    return;
+  }
+  const todo = toDownload();
+  const bad = todo.filter((t) => missingFields(t).length);
+  const running = state.tickets.filter((t) => t.dl?.status === 'running' || t.dl?.status === 'queued').length;
+  let sub = '';
+  if (downloading) sub = `下載中…會跳出高鐵網站視窗，請不要關閉它（還剩 ${running} 張）`;
+  else if (!state.tickets.length) sub = '先上傳車票照片。';
+  else if (!todo.length) sub = '證明都下載好了。';
+  else if (bad.length) sub = `還有 ${bad.length} 筆紅框欄位要補，補好才能下載。`;
+  else sub = `會自動到高鐵網站查詢、下載 ${todo.length} 張證明，解密後帶入票價。`;
+  setAuto(`<div class="auto-card">
+    <div class="info">
+      <div class="title"><span class="dot-ok" aria-hidden="true"></span>自動下載已就緒 <span class="muted small">擴充功能 v${esc(ver)}</span></div>
+      <div class="sub">${sub}</div>
+    </div>
+    <button type="button" class="btn primary lg" id="auto-dl" ${downloading || !todo.length || bad.length ? 'disabled' : ''}>
+      ${downloading ? '下載中…' : `自動下載 ${todo.length || ''} 張證明`}
+    </button>
+  </div>`);
+}
+
+$('#auto-box').addEventListener('click', async (e) => {
+  if (!(e.target as HTMLElement).closest('#auto-dl')) return;
+  const todo = toDownload();
+  if (!todo.length || downloading) return;
+  const form = getForm();
+  if (!confirm(`即將自動下載 ${todo.length} 張電子車票證明。\n\n高鐵規定每張只能下載一次，請確認明細正確。\n下載時會跳出高鐵網站視窗，完成後會自動關閉，過程中請不要關閉它。`)) return;
+  const jobs: ExtJob[] = todo.map((t) => ({
+    id: t.id, source: t.source === 'paper' ? 'paper' : 'mobile', seat: t.seat === 'free' ? 'free' : 'reserved',
+    date: t.date, depCode: stationCode(t.dep), arrCode: stationCode(t.arr),
+    ticketNo: t.ticketNo, bookingCode: t.bookingCode, taxId: form.taxId, company: form.companyName,
+  }));
+  downloading = true;
+  todo.forEach((t) => { t.dl = { status: 'queued' }; });
+  pdfStatus.textContent = '';
+  renderAll();
+  try {
+    await startDownload(jobs);
+  } catch (err) {
+    downloading = false;
+    todo.forEach((t) => { t.dl = undefined; });
+    pdfStatus.innerHTML = `<span class="err">${esc((err as Error).message)}</span>`;
+    renderAll();
+  }
+});
+
+/** 擴充功能下載回來的 PDF：用搭乘日期解密、讀出票價並對應到這一筆 */
+async function attachDownloaded(t: Ticket, name: string, bytes: Uint8Array) {
+  let parsed: ParsedTicket = {};
+  let password: string | null = t.date;
+  try {
+    const { openWithPasswords, extractText } = await import('./pdfjs');
+    const opened = await openWithPasswords(bytes, [t.date]);
+    if (opened) {
+      password = opened.password;
+      parsed = parseProofText(await extractText(opened.doc));
+      await opened.doc.destroy();
+    }
+  } catch { /* 讀不到內文也先保留檔案 */ }
+  attach(t, { name: name || `${t.date}_${t.ticketNo}.pdf`, bytes, password }, parsed);
+}
+
+onExtMessage(async (m) => {
+  if (m.type === 'hello') { extChecked = true; renderAuto(); return; }
+  if (m.type === 'progress') {
+    const t = state.tickets.find((x) => x.id === m.id);
+    if (!t) return;
+    if (m.status === 'ok' && m.pdfBase64) {
+      await attachDownloaded(t, m.filename ?? '', base64ToBytes(m.pdfBase64));
+      t.dl = { status: 'ok' };
+    } else if (m.status === 'rejected') {
+      t.dl = { status: 'rejected', message: '高鐵網站說資料不對，請檢查日期、號碼' };
+    } else if (m.status === 'already') {
+      t.dl = { status: 'already', message: '這張之前已下載過，請從下載資料夾手動上傳' };
+    } else if (m.status === 'saved') {
+      t.dl = { status: 'saved', message: `${m.message ?? ''}，請手動上傳` };
+    } else {
+      t.dl = { status: m.status, message: m.message };
+    }
+    renderAll();
+  } else if (m.type === 'done' || m.type === 'fatal') {
+    downloading = false;
+    state.tickets.forEach((t) => { if (t.dl?.status === 'queued' || t.dl?.status === 'running') t.dl = { status: 'error', message: '沒有完成' }; });
+    const ok = state.tickets.filter((t) => t.dl?.status === 'ok').length;
+    const fail = state.tickets.filter((t) => !t.pdf && t.dl && t.dl.status !== 'ok').length;
+    pdfStatus.innerHTML = m.type === 'fatal'
+      ? `<span class="err">自動下載中斷：${esc(m.message)}</span>`
+      : `<span class="ok">自動下載完成 ${ok} 張。</span>${fail ? ` ${fail} 張沒成功，原因寫在明細表裡。` : ' 可以匯出了。'}`;
+    if (fail) ($('#manual') as HTMLDetailsElement).open = true;
+    renderAll();
+  }
+});
+
+void detectExt().then(() => { extChecked = true; renderAuto(); });
+
 // ---------------- 模板 ----------------
 ($('#sample-link') as HTMLAnchorElement).href = `${BASE}sample-template.docx`;
 $<HTMLInputElement>('#tpl-input').addEventListener('change', async (e) => {
@@ -547,6 +710,8 @@ function checkReady(needPdf: boolean): string | null {
   if (!state.tickets.length) return '還沒有任何車票資料。';
   const bad = state.tickets.findIndex((t) => missingFields(t).filter((f) => f !== 'source' && f !== 'seat' && f !== 'ticketNo' && f !== 'bookingCode').length);
   if (bad >= 0) return `第 ${bad + 1} 筆的日期、起迄站或金額還沒填好。`;
+  const noFare = state.tickets.findIndex((t) => !t.fare);
+  if (!needPdf && noFare >= 0) return `第 ${noFare + 1} 筆還沒有金額（會從電子車票證明帶入）。`;
   if (needPdf && !state.tickets.some((t) => t.pdf)) return '還沒有上傳任何電子車票證明 PDF。';
   return null;
 }

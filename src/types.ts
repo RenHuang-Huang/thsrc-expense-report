@@ -21,6 +21,8 @@ export interface Ticket {
   pdf?: { name: string; bytes: Uint8Array; password: string | null };
   /** OCR 時的提示 */
   note?: string;
+  /** 自動下載狀態 */
+  dl?: { status: string; message?: string };
 }
 
 /** OCR / PDF 解析出來的部分欄位 */

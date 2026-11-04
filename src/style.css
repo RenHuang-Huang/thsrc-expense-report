@@ -74,6 +74,11 @@ code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85em;
 .pill-ok { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); font-size: 13px; font-weight: 500; cursor: help; }
 .pill-short { display: none; }
 .help-link { font-size: 14px; }
+.theme-btn { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: grid; place-items: center; cursor: pointer; }
+.theme-btn:hover { background: var(--soft); }
+.theme-btn .i-sun { display: none; }
+.theme-btn[data-mode="dark"] .i-sun { display: block; }
+.theme-btn[data-mode="dark"] .i-moon { display: none; }
 
 /* ---------- 版面 ---------- */
 .layout { max-width: 1280px; margin: 0 auto; padding: 28px 32px 48px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
@@ -214,6 +219,24 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 .copy.done .v { color: var(--ok); }
 .guide-more { border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 14px; }
 
+.auto-box { margin-bottom: 4px; }
+.auto-card { border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; justify-content: space-between; }
+.auto-card .info { flex: 1 1 280px; min-width: 0; }
+.auto-card .title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.auto-card .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.auto-card .btn.primary { min-width: 200px; }
+.dot-ok { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; display: inline-block; }
+.dot-off { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; }
+.install { border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.install ol { margin: 8px 0 12px; padding-left: 22px; font-size: 14px; }
+.install li { margin: 4px 0; }
+.install .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.manual { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.manual summary { cursor: pointer; color: var(--accent-text); font-size: 14px; font-weight: 500; min-height: 32px; display: flex; align-items: center; }
+.manual[open] summary { margin-bottom: 6px; }
+.manual .guides { margin-top: 10px; }
+.chip.run { background: var(--accent-soft); color: var(--accent-text); }
+.chip.bad { background: var(--bad-bg); color: var(--bad); }
 .unmatched { border: 1.5px solid var(--bad-line); background: var(--bad-row); border-radius: 12px; padding: 12px 14px; margin-top: 10px; display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; font-size: 14px; }
 .unmatched .name { font-weight: 600; word-break: break-all; }
 .unmatched .desc { color: var(--ink-2); flex: 1 1 260px; }

@@ -72,6 +72,7 @@ export function missingFields(t: Ticket): MissingField[] {
   if (!t.arr || t.arr === t.dep) out.push('arr');
   if (needQuery && !/^\d{13}$/.test(t.ticketNo)) out.push('ticketNo');
   if (needQuery && t.seat === 'reserved' && !/^\d{8}$/.test(t.bookingCode)) out.push('bookingCode');
-  if (t.fare == null || !Number.isFinite(t.fare) || t.fare <= 0) out.push('fare');
+  // 截圖通常沒有票價，會從電子車票證明帶入；有證明後才要求金額
+  if (t.pdf && (t.fare == null || !Number.isFinite(t.fare) || t.fare <= 0)) out.push('fare');
   return out;
 }

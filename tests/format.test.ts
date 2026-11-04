@@ -54,5 +54,7 @@ describe('已有 PDF 的票', () => {
     expect(missingFields(t)).toContain('seat');
     t.pdf = { name: 'a.pdf', bytes: new Uint8Array(), password: '20261001' };
     expect(missingFields(t)).toEqual([]);
+    expect(missingFields({ ...t, fare: null })).toEqual(['fare']);
+    expect(missingFields({ ...t, fare: null, pdf: undefined })).not.toContain('fare');
   });
 });
