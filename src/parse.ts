@@ -42,7 +42,7 @@ export function parseTicketText(raw: string, hint: { tallImage?: boolean } = {})
   if (!out.dep) delete out.dep;
   if (!out.arr) delete out.arr;
 
-  // 車票號碼：紙本 04-2-10-0-274-0636 → 13 碼
+  // 車票號碼：紙本 03-1-04-0-203-0156 → 13 碼
   const dashed = oneLine.match(/\b(\d{2})\s*-\s*(\d)\s*-\s*(\d{2})\s*-\s*(\d)\s*-\s*(\d{3})\s*-\s*(\d{4})\b/);
   const ticketNo =
     (dashed ? dashed.slice(1).join('') : '') ||
