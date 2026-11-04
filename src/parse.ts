@@ -53,7 +53,7 @@ export function parseTicketText(raw: string, hint: { tallImage?: boolean } = {})
   // 訂位代號
   let booking = digitsAfter(oneLine, /(?:訂位代號|Reservation\s*No\.?)/, 8);
   const isPaper = !!dashed || /NT\s*\$|磁票|變更乙次|旅客聯/.test(oneLine);
-  if (!booking && isPaper && !/自由座/.test(oneLine)) {
+  if (!booking && isPaper && !/自由座(?!等候)/.test(oneLine)) {
     // 紙本對號座：一組非日期的 8 碼數字
     const cands = [...oneLine.matchAll(/(?<![\d-])(\d{8})(?![\d-])/g)].map((m) => m[1]);
     booking = cands.find((c) => c !== date && !/^(19|20)\d{6}$/.test(c)) ?? '';
@@ -61,17 +61,18 @@ export function parseTicketText(raw: string, hint: { tallImage?: boolean } = {})
   if (booking) out.bookingCode = booking;
 
   // 座別
+  // T Express 頁首有「自由座等候時間」分頁，不能當成自由座；有訂位代號一定是對號座
+  const seatText = oneLine.replace(/自由座等候時間?/g, '');
   let seat: Seat = '';
-  if (/自由座|Non-?reserved/i.test(oneLine)) seat = 'free';
-  else if (/對號座|訂位代號|Reserved/i.test(oneLine) || booking) seat = 'reserved';
-  else if (/購票序號/.test(oneLine)) seat = 'free';
+  if (booking || /對號座|Reserved/i.test(seatText)) seat = 'reserved';
+  else if (/自由座|Non-?reserved|購票序號/i.test(seatText)) seat = 'free';
   if (seat) out.seat = seat;
   if (seat === 'free') out.bookingCode = '';
 
   // 來源
   let source: Source = '';
   if (isPaper) source = 'paper';
-  else if (/T\s*Express|電子票證|手機|購票序號|行動/i.test(oneLine) || hint.tallImage) source = 'mobile';
+  else if (/T?\s*EX\s*p?o?r?ess|Express|電子票證|手機|購票序號|行動|我的車|乘車條碼|行程總覽/i.test(oneLine) || hint.tallImage) source = 'mobile';
   if (source) out.source = source;
 
   // 金額

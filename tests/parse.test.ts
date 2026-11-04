@@ -47,6 +47,25 @@ T Express
   });
 });
 
+describe('T Express 實際畫面（Tesseract 原始輸出，號碼已換成假的）', () => {
+  const real = `品 55 0.2KB/s Z B .ull B.all & &8D
+EXress  Ov &
+O 全 線 正常 營運 說 自 由 座 等 候 時間
+訂 位 代號 01112222 成 人 1 張
+單程 .2026/09/01 栗 號 2900000000011
+板橋 桃園
+09:19 09 92
+車 久 813 車 廂 4 座位 11C
+點 選 車 票 , 即 可 顯示 乘 車 條 碼
+我 的 車 飄 訂 票 付款 / 取 票 。 載 入 訂 位 其 他`;
+  it('頁首「自由座等候時間」不會被當成自由座；「栗號」誤讀也抓得到票號', () => {
+    expect(parseTicketText(real)).toMatchObject({
+      source: 'mobile', seat: 'reserved', date: '20260901', dep: '板橋', arr: '桃園',
+      ticketNo: '2900000000011', bookingCode: '01112222',
+    });
+  });
+});
+
 describe('紙本車票 OCR 文字', () => {
   it('票號去連字號、NT$ 金額、8 碼訂位代號', () => {
     const p = parseTicketText(`台灣高鐵 THSR
