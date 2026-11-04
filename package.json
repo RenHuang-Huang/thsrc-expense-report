@@ -1,0 +1,31 @@
+{
+  "name": "thsrc-expense-report",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-vendor.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-vendor.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "make-template": "node scripts/make-sample-template.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.4.0",
+    "@neslinesli93/qpdf-wasm": "0.3.1",
+    "docxtemplater": "3.71.1",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "4.10.38",
+    "pizzip": "3.3.0",
+    "tesseract.js": "6.0.1"
+  },
+  "devDependencies": {
+    "@tesseract.js-data/chi_tra": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "typescript": "5.9.3",
+    "vite": "6.4.5",
+    "vitest": "3.2.7"
+  }
+}
